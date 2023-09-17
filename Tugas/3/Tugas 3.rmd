@@ -1,0 +1,142 @@
+#Modules
+```{r}
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(lmtest)
+library(car)
+```
+
+#get data
+```{r}
+rawdata=read.csv("D:/Kuliah/!yes/R/Semester5/MPDW/Files/Monthly-train.csv")
+head(rawdata)
+
+#we'll just use n=100 with v2 and v3
+#V3 as y and v2 as x
+n=100
+data=rawdata[1:100,2:3]
+
+sum(is.na(data))           #No missing value
+```
+
+##Train test split
+```{r}
+#SPLIT DATA             80|20
+train=data[1:80,]
+test=data[81:n,]
+h=length(test$V2)
+#data time series
+train.ts=ts(train)
+test.ts=ts(test)
+data.ts=ts(data)
+```
+
+#model
+##Koyck
+```{r}
+#Getting model
+model.koyck = koyckDlm(x = train$V2, y = train$V3)
+summary(model.koyck)
+AIC.koyck=AIC(model.koyck)
+BIC(model.koyck)
+
+#Evaluate
+fore.koyck = forecast(model = model.koyck, x=test$V2, h=h)
+fore.koyck
+mapetest.koyck = MAPE(fore.koyck$forecasts, test$V3) #Test
+mapetrain.koyck=as.numeric(GoF(model.koyck)["MAPE"]) #Train
+```
+##R DLM
+```{r}
+#Get the optimum lag
+finiteDLMauto(formula = V3 ~ V2,
+              data = train, q.min = 1, q.max = 38,
+              model.type = "dlm", error.type = "AIC", trace = FALSE)
+#Best result= 38
+
+#Getmodel
+model.dlm2 = dlm(x = train$V2, y = train$V3 , q = 38)
+summary(model.dlm2)
+AIC.DLM=AIC(model.dlm2)
+BIC(model.dlm2)
+
+#Evaluate
+#peramalan dan akurasi
+fore.dlm2 = forecast(model = model.dlm2, x=test$V2, h=20)
+
+mapetest.dlm= MAPE(fore.dlm2$forecasts, test$V3)  #test
+mapetrain.dlm=as.numeric(GoF(model.dlm2)["MAPE"])  #Train
+```
+##Autoregressive
+```{r}
+#Lag optimum (Incorrect result open getting the specificized model)
+
+#model.ardl.opt = ardlBoundOrders(data = data, ic = "AIC", formula = V3 ~ V2, max.p = 38, max.q = 38)     #This is why R better got cuda support
+
+model.ardl.opt
+min_p=c()
+
+for(i in 1:38){
+  min_p[i]=min(model.ardl.opt$Stat.table[[i]])
+}
+
+q_opt=which(min_p==min(min_p, na.rm = TRUE))
+p_opt=which(model.ardl.opt$Stat.table[[q_opt]] == 
+              min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+data.frame("q_optimum" = q_opt, "p_optimum" = p_opt, 
+           "AIC"=model.ardl.opt$min.Stat)
+
+AIC=c()
+for(i in 1:38){
+  for(j in 1:38){
+    AIC[i][j] = AIC(ardlDlm(formula = V3 ~ V2, data = data, p = i , q = j))
+  }
+}
+View(data.frame(matrix(AIC, 38, 38)))
+min(AIC)
+#Get model
+model.ardl=ardlDlm(formula = V3 ~ V2, data = data, p = 1 , q = 38)
+summary(model.ardl)
+AIC.ardl=AIC(model.ardl)
+BIC(model.ardl)
+
+#evaluate
+fore.ardl = forecast(model = model.ardl, x=test$V2, h=h)
+mapetest.ardl = MAPE(fore.ardl$forecasts, test$V3)
+mape.ardl                                         #test
+mapetrain.ardl=as.numeric(GoF(model.ardl)["MAPE"]) #train
+```
+
+#Model Comparison
+##AIC
+```{r}
+totAIC = matrix(c(AIC.koyck, AIC.DLM, AIC.ardl))
+row.names(totAIC)= c("Koyck","DLM", "Autoregressive")
+colnames(totAIC) = c("aic")
+totAIC
+```
+
+##MPE
+```{r}
+totMPE = matrix(c(mapetrain.koyck, mapetrain.dlm, mapetrain.ardl, mapetest.koyck, mapetest.dlm, mapetest.ardl), 2,3, byrow=TRUE)
+
+colnames(totMPE)= c("Koyck","DLM","Autoregressive")
+row.names(totMPE) = c("MAPE test", "MAPE train" )
+totMPE
+```
+##Plot
+```{r}
+par(mfrow=c(1,1))
+plot(test$V2, test$V3, type="b", col="black")
+points(test$V2, fore.koyck$forecasts,col="red")
+lines(test$V2, fore.koyck$forecasts,col="red")
+points(test$V2, fore.dlm2$forecasts,col="orange")
+lines(test$V2, fore.dlm2$forecasts,col="orange")
+points(test$V2, fore.ardl$forecasts,col="green")
+lines(test$V2, fore.ardl$forecasts,col="green")
+legend("topleft",c("aktual", "koyck","DLM", "autoregressive"), lty=1, col=c("black","red","orange","green"), cex=0.8)
+```
+
+#Kesimpulan
+Model terbaik adalah model R DLM dengan AIC 522.2665, MAPE test sebesar 0.02510873 , dan MAPE train sekitar 1.15033586.
