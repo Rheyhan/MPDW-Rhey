@@ -1,0 +1,97 @@
+#Materi yang dipelajari
+```{r}
+
+```
+
+#Module
+```{r}
+library("forecast")
+library("graphics")
+library("TTR")
+library("TSA")
+library("rio")
+library("ggplot2")
+```
+
+
+#Input data
+```{r}
+data1=read.csv("https://raw.githubusercontent.com/rizkynurhambali/Praktikum-MPDW-2324/main/Pertemuan%201/Data_1.csv")
+
+data2=read.csv("https://raw.githubusercontent.com/rizkynurhambali/Praktikum-MPDW-2324/main/Pertemuan%201/Data_2.csv")
+data
+data1
+
+data1.ts=ts(data1$Yt)
+data2.ts=ts(data2$Sales)
+```
+##Exploration and cleaning (if needed)
+```{r}
+
+  #Data 1
+summary(data1)
+str(data1)
+summary(data1.ts)
+  #Data 2
+summary(data2)
+str(data2)
+summary(data2.ts)
+```
+##Plotting
+```{r}
+#Data 1
+plot(data1.ts)
+points(data1.ts)
+
+#Data 2
+plot(data2.ts)
+points(data2.ts)
+```
+#Single Moving Average & Double Moving Average
+##Train test split
+```{r}
+#We'll be using the 2nd data here, i guess. Split 80|20
+temp=round(length(data2.ts)*0.8)
+
+train.data=data2[1:temp,]
+train.ts=ts(train.data$Sales)
+
+temp=temp+1
+test.data=data2[temp:length(data2.ts),]
+test.ts=ts(test.data$Sales)
+
+h=length(test.ts)
+```
+##Exploration
+```{r}
+#Visualize both train and test
+ggplot() + 
+  geom_line(data = training_ma, aes(x = Period, y = Sales, col = "Train")) +
+  geom_line(data = testing_ma, aes(x = Period, y = Sales, col = "Test"))
+
+#Train
+plot(train.ts)
+points(train.ts)
+
+#Test
+plot(test.ts)
+points(test.ts)
+```
+#Single Moving Average
+```{r}
+data.sma<-SMA(train.ts, n=4)      #(t-n+1) -> (t-3)
+#data.sma
+data.sma
+```
+###Forecasting
+```{r}
+forecast=c(NA,data.sma)
+
+data.gab<-cbind(aktual=c(data2$Sales),
+                pemulusan=c(data.sma),
+                forecast=c(forecast))
+data.gab
+```
+
+
+
