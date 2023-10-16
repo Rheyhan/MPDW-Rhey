@@ -1,0 +1,293 @@
+#Install Packages
+```{r}
+'
+install.packages("dplyr")
+install.packages("forecast")
+install.packages("lmtest")
+install.packages("orcutt")
+install.packages("HoRM")
+install.packages("dLagM")
+install.packages("dynlm")
+install.packages("MLmetrics")
+install.packages("car")
+install.packages("ggplot2")
+install.packages("tsibble")
+install.packages("tseries")
+install.packages("MASS")
+install.packages("TSA")
+install.packages("TTR")
+install.packages("aTSA")
+install.packages("graphics")
+install.packages("readxl")
+'
+```
+
+#Modules
+```{r}
+library(readxl)
+library(dplyr)
+library(lmtest)
+library(orcutt)
+library(HoRM)
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(car)
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(forecast)
+library(TSA)
+library(TTR)
+library(aTSA)
+library(graphics)
+```
+#Input Data
+```{r}
+rawdata=read.csv("D:/Kuliah/!yes/R/Semester5/MPDW/Files/Monthly-train.csv")
+
+#head(rawdata)
+#length(rawdata)
+
+#We'll just use v2 as its own response to simplify things, and set the size of the data to 200
+n=200
+df=rawdata[1:n,1:2]
+colnames(df)=c("Period", "Data")
+df$Period=seq(1,n)
+head(df)
+```
+#Exploration
+##DF
+```{r}
+#sum(is.na(df))
+#str(df)
+#dim(df)
+```
+
+##Visualize Dataset
+```{r}
+data.ts=ts(df$Data, frequency = 1)
+ts.plot(data.ts, xlab="Period ", ylab="Data",
+        main = "Time Series Plot")
+points(data.ts)
+```
+##Train Test Split
+```{r}
+#We'll just do 85|20 split for the dataset, as finding a stable trend for the test split is the main priority. Though the data being used is an artificial data with a meaningless input. Subjects to change neither seasonly nor having a stable trend.
+temp=round(n*0.85)
+train.data=df[1:temp,]
+train.ts=ts(train.data$Data, frequency = 1)
+
+temp=round(n*0.85)+1
+test.data=df[temp:n,]
+test.ts=ts(test.data$Data, frequency =  1)
+h=length(test.ts)
+```
+##Visualize train test split
+```{r}
+#The entire dataset
+#colnames(df)
+ggplot() +
+  geom_line(data = train.data, aes(x = Period, y = Data, col = "Train")) +
+  geom_line(data = test.data, aes(x = Period, y = Data, col = "Test")) +
+  scale_colour_manual(name="legend:", breaks = c("Train", "Test"),
+                      values = c("blue", "red")) +
+  theme_bw() + theme(legend.position = "bottom",
+                     plot.caption = element_text(hjust=0.5, size=12))
+
+#Train
+plot(train.ts, col="blue",main="Train")
+points(train.ts)
+
+#Test
+plot(test.ts, col="blue",main="Test")
+points(test.ts)
+```
+#Test for stationarity 
+##ACF plot
+```{r}
+#Plot ACF
+acf(train.ts)
+```
+##ADF Test
+```{r}
+tseries::adf.test(train.ts)
+```
+H_0: Data tidak stasioner dalam rataan
+H_1 : Data stasioner dalam rataan
+
+P val sebesar 0.08468 lebih besar dari taraf 5%, sehingga tolak H0, cukup bukti untuk mengatakan data tidak stasioner dalam rataan
+
+##Plot Box-Cox
+```{r}
+index <- seq(1:length(train.ts))
+bc = boxcox(train.ts~index, lambda = seq(0,10,by=1))
+
+#Nilai Rounded Lambda
+lambda <- bc$x[which.max(bc$y)]
+lambda
+
+#SK
+bc$x[bc$y > max(bc$y) - 1/2 * qchisq(.95,1)]
+```
+Plot Boxcox menunjukkan nilai rounded value  optimum sebesar 0
+#Penanganan Ketidakstasioneran Data
+##Diff function
+```{r}
+train.diff<-diff(train.ts,differences = 1)
+plot.ts(train.diff)
+```
+Berdasarkan plot data deret waktu, terlihat bahwa data sudah stasioner dalam rataan ditandai dengan data bergerak pada nilai tengah tertentu (tidak terdapat trend ataupun musiman pada data)
+##Check 
+#### Plot ACF
+```{r}
+acf(train.diff)
+```
+Berdasarkan plot tersebut, terlihat bahwa plot ACF cuts off pada lag ke 1 dan 6. Hal ini cukup menandakan data sudah stasioner dalam rataan dan ketidakstasioneran data telah berhasil tertangani.
+
+###Uji ADF
+```{r}
+tseries::adf.test(train.diff)
+```
+$H_0$ : Data tidak stasioner dalam rataan
+$H_1$ : Data stasioner dalam rataan
+
+Dari uji ADF tersebut, didapat p-value sebesar 0.01, sehingga p val lebih kecil dari taraf nyata 5% sehingga tolak $H_0$. Cukup bukti untuk mengatakan data stasioner dalam rataan
+
+#Get Model 
+## Plot ACF
+```{r}
+acf(train.diff)
+```
+plot ACF cenderung *cuts off* pada lag ke 1 dan 6. Sehingga jika plot PACF dianggap *tails of*, maka model tentatifnya adalah ARIMA(0,1,1) / ARIMA(0,1,6)
+
+##Plot PCF
+```{r}
+pacf(train.diff)
+```
+plot PACF cenderung *cuts off* pada lag ke 1, 2, 3, 4, dan 5, sehingga jika plot ACF dianggap tails of, maka model tentatifnya adalah ARIMA(1,1,0) / ARIMA(2,1,0) / ARIMA(3,1,0) / ARIMA(4,1,0) / ARIMA(5,1,0).
+
+##Plot EACF
+```{r}
+eacf(train.diff)
+```
+model tentatif yang terbentuk adalah ARIMA(0,1,1), ARIMA(0,1,2), ARIMA(0,1,4), ARIMA(1,1,2), ARIMA(1,1,3)
+
+##Pendugaan Parameter Model Tentatif
+###ARIMA(0,1,1)
+```{r}
+model1=Arima(train.diff, order=c(0,1,1),method="ML")
+summary(model1) #AIC=3188.01
+lmtest::coeftest(model1) #seluruh parameter signifikan
+```
+###ARIMA(0,1,2)
+```{r}
+model2=Arima(train.diff, order=c(0,1,2),method="ML")
+summary(model2) #AIC=3126.14
+lmtest::coeftest(model2) #seluruh parameter signifikan
+```
+###ARIMA(0,1,4)
+```{r}
+model3=Arima(train.diff, order=c(0,1,4),method="ML")
+summary(model3) #AIC=3126.57   
+lmtest::coeftest(model3) #Terdapat parameter tidak signifikan
+```
+
+###ARIMA(1,1,2)
+```{r}
+model4=Arima(train.diff, order=c(1,1,2),method="ML")
+summary(model4) #AIC=3125.54   
+lmtest::coeftest(model4) #Terdapat parameter tidak signifikan
+```
+
+###ARIMA(1,1,3)
+```{r}
+model5=Arima(train.diff, order=c(1,1,3),method="ML")
+summary(model5) #AIC=3126.78   
+lmtest::coeftest(model5) #Terdapat parameter tidak signifikan
+```
+##Kesimpulan
+```{r}
+#Model terbaik adalah model 2 (ARIMA(0,1,2)). Memiliki AIC paling kecil dibandingkan model lainnya dan seluruh parameternya signifikan.
+```
+##Eksplorasi Sisaan
+```{r}
+#Eksplorasi
+sisaan.da <- model2$residuals
+par(mfrow=c(2,2))
+qqnorm(sisaan.da)
+qqline(sisaan.da, col = "blue", lwd = 2)
+plot(c(1:length(sisaan.da)),sisaan.da)
+acf(sisaan.da)
+pacf(sisaan.da)
+par(mfrow = c(1,1))
+```
+##Uji Formal
+```{r}
+#1) Sisaan Menyebar Normal
+ks.test(sisaan.da,"pnorm")  #tak tolak H0 > sisaan menyebar normal
+```
+$H0$ : Sisaan menyebar normal
+
+$H1$ : Sisaan tidak menyebar normal
+
+Berdasarkan uji KS tersebut, didapat p-value sebesar 0.00 yang kurang dari taraf nyata 5% sehingga tolak H0 dan menandakan bahwa sisaan tidak menyebar normal. Hal ini sesuai dengan hasil eksplorasi menggunakan plot kuantil-kuantil normal.
+
+```{r}
+#2) Sisaan saling bebas/tidak ada autokorelasi
+Box.test(sisaan.da, type = "Ljung")  #tak tolak H0 > sisaan saling bebas
+```
+$H0$  : Sisaan saling bebas
+
+$H1$ : Sisaan tidak tidak saling bebas
+
+Berdasarkan uji Ljung-Box tersebut, didapat p-value sebesar 0.8843 yang lebih besar dari taraf nyata 5% sehingga tak tolak H0 dan menandakan bahwa sisaan saling bebas. Hal ini berbeda dengan eksplorasi.
+
+```{r}
+#3) Sisaan homogen
+Box.test((sisaan.da)^2, type = "Ljung")  #tak tolak H0 > sisaan homogen
+```
+$H0$ : Ragam sisaan homogen
+
+$H1$ : Ragam sisaan tidak homogen
+
+Berdasarkan uji Ljung-Box terhadap sisaan kuadrat tersebut, didapat p-value sebesar 0.0062 yang kurang dari taraf nyata 5% sehingga tolak H0 dan menandakan bahwa ragam sisaan homogen.
+
+```{r}
+#4) Nilai tengah sisaan sama dengan nol
+t.test(sisaan.da, mu = 0, conf.level = 0.95)  #tak tolak h0 > nilai tengah sisaan sama dengan 0
+```
+$H0$ : nilai tengah sisaan sama dengan 0
+
+$H1$ : nilai tengah sisaan tidak sama dengan 0
+
+Berdasarkan uji-ttersebut, didapat p-value sebesar 0.231 yang lebih besar dari taraf nyata 5% sehingga tak tolak H0 dan menandakan bahwa nilai tengah sisaan sama dengan nol.
+
+##Peramalan
+
+Peramalan dilakukan menggunakan fungsi forecast() . Contoh peramalan berikut ini dilakukan untuk 30 hari ke depan.
+```{r}
+ramalan.da = forecast::forecast(model2, h = h)
+ramalan.da
+data.ramalan.da= ramalan.da$mean
+plot(ramalan.da)
+```
+Berdasarkan hasil plot ramalan di atas, dapat dilihat bahwa ramalan ARIMA(0,1,2) cenderung stabil hingga akhir periode.
+```{r}
+pt_1 <- train.ts[length(train.ts)] #nilai akhir data latih
+hasil.forc.Diff <- data.ramalan.da
+hasil <- diffinv(hasil.forc.Diff, differences = 1) + pt_1
+#has.1 sama hasilnta dengan: cumsum(c(pt_1,hasil.forc.Diff))
+ts.plot(train.ts,hasil)
+```
+```{r}
+perbandingan.da<-matrix(data=c(head(test.ts, n=h), hasil[-1]),
+                     nrow = h, ncol = 2)
+colnames(perbandingan.da)<-c("Aktual"," Forecast")
+perbandingan.da
+```
+```{r}
+accuracy(ts(hasil[-1]), head(test.ts, n=h))
+```
+
